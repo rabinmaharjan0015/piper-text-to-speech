@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
-import Worker from "./worker/worker.ts?worker";
-
-// Create worker ONCE
-const worker = new Worker();
-
-// Reuse audio element
-const audio = new Audio();
+import { useEffect, useRef, useState } from "react";
+import TTSWorker from "./worker/worker?worker";
 
 type WorkerMessage =
+  | {
+    type: "ready";
+  }
   | {
     type: "result";
     audio: Blob;
@@ -15,12 +12,12 @@ type WorkerMessage =
   | {
     type: "error";
     error: string;
-  }
-  | {
-    type: "ready";
   };
 
 export default function App() {
+  const workerRef = useRef<Worker | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const [text, setText] = useState(
     "As the waves crashed against the shore, they carried tales of distant lands and adventures untold."
   );
@@ -29,51 +26,86 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // init once
+    // create worker instance
+    const worker = new TTSWorker();
+
+    workerRef.current = worker;
+
+    // create audio instance
+    audioRef.current = new Audio();
+
+    // initialize model
     worker.postMessage({
       type: "init",
       voiceId: "en_US-hfc_female-medium",
     });
 
-    worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+    // receive messages
+    worker.onmessage = async (
+      event: MessageEvent<WorkerMessage>
+    ) => {
       const data = event.data;
 
-      if (data.type === "ready") {
-        setIsReady(true);
-        return;
-      }
+      switch (data.type) {
+        case "ready":
+          setIsReady(true);
+          break;
 
-      if (data.type === "result") {
-        setLoading(false);
+        case "result": {
+          setLoading(false);
 
-        const url = URL.createObjectURL(data.audio);
+          const url = URL.createObjectURL(data.audio);
 
-        audio.src = url;
+          if (audioRef.current) {
+            audioRef.current.pause();
 
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-        };
+            audioRef.current.src = url;
 
-        audio.play();
-      }
+            audioRef.current.onended = () => {
+              URL.revokeObjectURL(url);
+            };
 
-      if (data.type === "error") {
-        setLoading(false);
-        console.error(data.error);
+            try {
+              await audioRef.current.play();
+            } catch (err) {
+              console.error(err);
+            }
+          }
+
+          break;
+        }
+
+        case "error":
+          setLoading(false);
+          console.error("Worker Error:", data.error);
+          break;
       }
     };
 
+    worker.onerror = (err) => {
+      console.error("Worker crashed:", err);
+      setLoading(false);
+    };
+
+    // cleanup
     return () => {
       worker.terminate();
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      }
     };
   }, []);
 
   const handleSpeak = () => {
     if (!text.trim()) return;
 
+    if (!workerRef.current) return;
+
     setLoading(true);
 
-    worker.postMessage({
+    workerRef.current.postMessage({
       type: "predict",
       text,
       voiceId: "en_US-hfc_female-medium",
@@ -83,22 +115,28 @@ export default function App() {
   return (
     <div
       style={{
+        maxWidth: 700,
+        margin: "40px auto",
         padding: 24,
         display: "flex",
         flexDirection: "column",
-        gap: 12,
-        maxWidth: 600,
+        gap: 16,
+        fontFamily: "sans-serif",
       }}
     >
-      <h1>React VITS TTS</h1>
+      <h1>React TTS Worker Example</h1>
 
       <textarea
-        rows={6}
+        rows={8}
         value={text}
         onChange={(e) => setText(e.target.value)}
+        placeholder="Enter text..."
         style={{
-          padding: 12,
+          padding: 16,
           fontSize: 16,
+          borderRadius: 8,
+          border: "1px solid #ccc",
+          resize: "vertical",
         }}
       />
 
@@ -106,14 +144,29 @@ export default function App() {
         onClick={handleSpeak}
         disabled={!isReady || loading}
         style={{
-          padding: "12px 16px",
-          cursor: "pointer",
+          padding: "14px 18px",
+          fontSize: 16,
+          borderRadius: 8,
+          border: "none",
+          cursor: !isReady || loading ? "not-allowed" : "pointer",
+          opacity: !isReady || loading ? 0.6 : 1,
         }}
       >
-        {loading ? "Generating..." : "Speak"}
+        {loading
+          ? "Generating Speech..."
+          : isReady
+            ? "Speak"
+            : "Loading Model..."}
       </button>
 
-      {!isReady && <p>Loading model...</p>}
+      <div>
+        <strong>Status:</strong>{" "}
+        {loading
+          ? "Generating..."
+          : isReady
+            ? "Ready"
+            : "Loading model"}
+      </div>
     </div>
   );
 }

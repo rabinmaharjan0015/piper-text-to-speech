@@ -8,15 +8,18 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
-  build: {
-    rollupOptions: {
-      external: ["@diffusionstudio/vits-web", "onnxruntime-web"]
-    }
+  worker: {
+    format: "es",
   },
-  server: {
-    headers: {
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-    },
-  },
+  // build: {
+  //   rollupOptions: {
+  //     external: ["@diffusionstudio/vits-web", "onnxruntime-web"]
+  //   }
+  // },
+  // server: {
+  //   headers: {
+  //     'Cross-Origin-Embedder-Policy': 'require-corp',
+  //     'Cross-Origin-Opener-Policy': 'same-origin',
+  //   },
+  // },
 })
